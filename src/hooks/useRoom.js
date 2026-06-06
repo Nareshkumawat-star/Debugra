@@ -104,7 +104,16 @@ export function useRoom({ user, code, language, stdinValue, setCode, setLanguage
   useEffect(() => {
     if (!roomId) return;
     const unsub = onSnapshot(doc(db, 'rooms', roomId), (snap) => {
-      if (!snap.exists()) return;
+      if (!snap.exists()) {
+        // Room was deleted by the host — gracefully exit the guest
+        toast.error('The room was ended by the host.');
+        localStorage.removeItem('debugra_roomId');
+        sessionStorage.removeItem(`${ROOM_AUTH_PREFIX}${roomId}`);
+        setRoomId(null);
+        setRoomData(null);
+        setActiveUsers([]);
+        return;
+      }
       const data = snap.data();
       setRoomData(data);
       if (data.code !== undefined && data._lastEditor !== user?.uid) setCode(data.code);
@@ -295,9 +304,14 @@ export function useRoom({ user, code, language, stdinValue, setCode, setLanguage
     if (!roomId) return;
     try {
       localStorage.removeItem('debugra_roomId');
+      sessionStorage.removeItem(`${ROOM_AUTH_PREFIX}${roomId}`);
       if (user && roomData) {
-        const newUsers = (roomData.activeUsers || []).filter((u) => u.uid !== user.uid);
-        await updateDoc(doc(db, 'rooms', roomId), { activeUsers: newUsers }).catch(() => {});
+        const roomRef = doc(db, 'rooms', roomId);
+        const roomSnap = await getDoc(roomRef);
+        if (roomSnap.exists()) {
+          const newUsers = (roomData.activeUsers || []).filter((u) => u.uid !== user.uid);
+          await updateDoc(roomRef, { activeUsers: newUsers }).catch(() => {});
+        }
       }
     } catch (e) {
       console.error(e);
